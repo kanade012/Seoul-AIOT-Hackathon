@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['knife']
+
+roboflow:
+  workspace: train-yolov8-on-custom-dataset
+  project: knife-detection-azq4h
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/train-yolov8-on-custom-dataset/knife-detection-azq4h/dataset/1
