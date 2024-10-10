@@ -5,11 +5,15 @@ import numpy as np
 import math
 from ultralytics import YOLO
 import time
-import serial  # Add serial for Arduino communication
+import pygame  # 알람 사운드를 재생하기 위한 라이브러리
+
+# Initialize pygame for sound
+pygame.mixer.init()
+alert_sound = pygame.mixer.Sound('beep.mp3')  # 삐 소리를 담은 파일 경로 설정
 
 # Load YOLOv8 models
 person_model = YOLO('yolov8n.pt')
-knife_model = YOLO('best.pt')
+knife_model = YOLO('knife_model.pt')  # 칼 탐지 모델
 pose_model = YOLO('yolov8n-pose.pt')
 
 # Initialize video capture (webcam or video file)
@@ -21,10 +25,6 @@ keypoint_names = [
     "Left Elbow", "Right Elbow", "Left Wrist", "Right Wrist", "Left Hip", "Right Hip",
     "Left Knee", "Right Knee", "Left Ankle", "Right Ankle"
 ]
-
-# Initialize Arduino connection (adjust 'COM3' or '/dev/ttyACM0' as necessary)
-arduino = serial.Serial('/dev/cu.usbserial-1310', 74880)  # Replace 'COM3' with your Arduino port
-time.sleep(2)  # Allow Arduino to reset
 
 # Person tracking and knife detection data
 person_data = {}
@@ -109,12 +109,10 @@ def remove_expired_alerts(alerts):
     current_time = time.time()
     return [(text, pos, obj_id, t) for text, pos, obj_id, t in alerts if current_time - t < alert_expiry_time]
 
-# Send true/false to Arduino depending on the presence of active alerts
-def send_alert_to_arduino(alerts):
+# 알람 상태에 따라 노트북에서 소리 재생
+def play_alert_sound(alerts):
     if len(alerts) > 0:
-        arduino.write(b'true\n')  # Send true if alerts exist
-    else:
-        arduino.write(b'false\n')  # Send false if no alerts
+        alert_sound.play()  # 알림이 있을 때 소리 재생
 
 # Main loop
 while True:
@@ -200,7 +198,7 @@ while True:
 
     alerts = remove_expired_alerts(alerts)
 
-    send_alert_to_arduino(alerts)  # Send alert status to Arduino
+    play_alert_sound(alerts)  # 알림 상태를 확인하고 소리 재생
 
     for alert_text, position, _, _ in alerts:
         cvzone.putTextRect(frame, alert_text, position, thickness=2, scale=2)
@@ -212,13 +210,6 @@ while True:
         break
     elif key == ord('w'):
         draw_layer = not draw_layer
-    elif key == ord('o'):  # 'o' 키를 누르면 왼쪽으로 회전
-        arduino.write(b'left\n')  # 'left' 명령을 아두이노에 전송
-        time.sleep(0.1)  # 전송 후 지연 추가
-    elif key == ord('p'):  # 'p' 키를 누르면 오른쪽으로 회전
-        arduino.write(b'right\n')  # 'right' 명령을 아두이노에 전송
-        time.sleep(0.1)  # 전송 후 지연 추가
-
 
 cap.release()
 cv2.destroyAllWindows()
