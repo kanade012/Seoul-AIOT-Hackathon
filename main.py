@@ -107,6 +107,11 @@ while True:
                 # Check if the knife is smaller than the person
                 for person_id, pose_result in enumerate(pose_results):
                     keypoints = pose_result.keypoints.xy[0]
+
+                    # If no keypoints, skip this person
+                    if len(keypoints) < 6:  # We need at least 6 keypoints for comparison
+                        continue
+
                     person_height = int(abs(keypoints[5][1] - keypoints[15][1]))  # From left shoulder to left ankle
                     person_width = int(abs(keypoints[6][0] - keypoints[12][0]))   # From right shoulder to right hip
                     person_area = person_height * person_width
@@ -131,9 +136,14 @@ while True:
         for person_id, pose_result in enumerate(pose_results):
             keypoints = pose_result.keypoints.xy[0]  # Extract keypoints for each person
 
-            # Check if this person has been seen before
-            if person_id not in person_data:
-                person_data[person_id] = {
+            # Check if keypoints have the necessary length (e.g., at least 6 keypoints)
+            if len(keypoints) < 6:  # We need at least 6 keypoints to use the left shoulder (index 5)
+                continue  # Skip this person if keypoints are incomplete
+
+            # Unique person tracking using left shoulder keypoint (index 5) for example
+            person_key = tuple(keypoints[5].tolist())  # Use left shoulder coordinates as a unique key
+            if person_key not in person_data:
+                person_data[person_key] = {
                     'initial_positions': keypoints.clone(),  # Store initial positions of keypoints
                     'fall_start_time': None
                 }
@@ -145,13 +155,13 @@ while True:
                     cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
                     cv2.putText(frame, keypoint_names[i], (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
-            # Check for fall detection
-            initial_positions = person_data[person_id]['initial_positions']
+            # Fall detection for each person
+            initial_positions = person_data[person_key]['initial_positions']
             if detect_fall(initial_positions, keypoints):
-                if person_data[person_id]['fall_start_time'] is None:
-                    person_data[person_id]['fall_start_time'] = time.time()
+                if person_data[person_key]['fall_start_time'] is None:
+                    person_data[person_key]['fall_start_time'] = time.time()
                 else:
-                    fall_duration = time.time() - person_data[person_id]['fall_start_time']
+                    fall_duration = time.time() - person_data[person_key]['fall_start_time']
                     if fall_duration >= fall_duration_threshold:
                         # Add fall detection alert (if not already present)
                         alert_position = get_next_alert_position(alerts)
