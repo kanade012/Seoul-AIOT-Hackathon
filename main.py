@@ -12,7 +12,7 @@ knife_model = YOLO('best.pt')  # Custom trained object detection model (e.g., fo
 pose_model = YOLO('yolov8n-pose.pt')  # YOLOv8 pose estimation model
 
 # Initialize video capture (webcam or video file)
-cap = cv2.VideoCapture("fall.mp4")
+cap = cv2.VideoCapture(1)
 
 # Define keypoints for pose estimation
 keypoint_names = [
@@ -109,11 +109,11 @@ def get_next_alert_position(alerts):
     return (50, y_base + len(alerts) * alert_spacing)
 
 # Function to add an alert only if it does not exist already (check both text and position)
-def add_alert(alerts, alert_text, position, person_id):
-    # Check if the same alert text and person ID already exist in the alerts list
+def add_alert(alerts, alert_text, position, person_id=None):
+    # Check if the same alert text and person ID (if applicable) already exist in the alerts list
     for existing_alert, existing_pos, existing_id, _ in alerts:
         if existing_alert == alert_text and existing_id == person_id:
-            return  # If the same alert for the same person already exists, don't add it
+            return  # If the same alert already exists, don't add it
     # If alert is not a duplicate, add it with the current time
     alerts.append((alert_text, position, person_id, time.time()))
 
@@ -133,6 +133,9 @@ while True:
 
     # Run YOLOv8n person detection model
     person_results = person_model(frame)
+
+    # Run knife detection on the entire frame (not just the person ROI)
+    knife_results = knife_model(frame)
 
     # Process person detection results
     for person_info in person_results:
@@ -157,58 +160,9 @@ while True:
                     cvzone.cornerRect(frame, [x1, y1, width, height], l=30, rt=6)
                     cvzone.putTextRect(frame, f"Person {person_id}", [x1 + 8, y1 - 12], thickness=2, scale=2)
 
-                # Crop the frame around the detected person
-                person_roi = frame[y1:y2, x1:x2]
-
-                # Run knife detection (best.pt) on the person
-                knife_results = knife_model(person_roi)
-
                 # Run pose estimation (yolov8n-pose) on the person
                 with torch.no_grad():
-                    pose_results = pose_model(person_roi)
-
-                # Process knife detection results
-                for knife_info in knife_results:
-                    knife_boxes = knife_info.boxes
-                    for box in knife_boxes:
-                        x1_k, y1_k, x2_k, y2_k = box.xyxy[0]
-                        x1_k, y1_k, x2_k, y2_k = int(x1_k), int(y1_k), int(x2_k), int(y2_k)
-                        confidence_k = box.conf[0]
-                        class_detect_k = box.cls[0]
-                        class_detect_k = int(class_detect_k)
-                        conf_k = math.ceil(confidence_k * 100)
-
-                        # If a knife is detected and confidence is above the threshold
-                        if conf_k > 50 and class_detect_k == 0:  # Assuming class 0 is 'knife'
-                            width_k = x2_k - x1_k
-                            height_k = y2_k - y1_k
-                            knife_area = width_k * height_k
-
-                            # Track the knife detection time
-                            knife_id = (x1_k, y1_k, x2_k, y2_k)  # Unique knife identifier based on its coordinates
-                            if knife_id not in knife_detection_times:
-                                knife_detection_times[knife_id] = {'start_time': time.time(), 'valid': False}
-
-                            # Ensure knife is smaller than the person
-                            person_height = height
-                            person_width = width
-                            person_area = person_height * person_width
-
-                            if knife_area < person_area:  # Ensure knife is smaller than the person
-                                detection_time = time.time() - knife_detection_times[knife_id]['start_time']
-
-                                # Check if the knife has been detected for more than 1 second
-                                if detection_time >= 1.0:
-                                    knife_detection_times[knife_id]['valid'] = True  # Mark as valid detection
-                                    if knife_detection_times[knife_id]['valid']:
-                                        # Draw the knife bounding box if drawing layers is enabled
-                                        if draw_layer:
-                                            cvzone.cornerRect(frame, [x1_k + x1, y1_k + y1, width_k, height_k], l=30, rt=6)
-                                            cvzone.putTextRect(frame, "Knife", [x1_k + 8 + x1, y1_k - 12 + y1], thickness=2, scale=2)
-
-                                        # Add knife detection alert (if not already present)
-                                        alert_position = get_next_alert_position(alerts)
-                                        add_alert(alerts, f'Knife Detected: Person {person_id}', alert_position, knife_id)
+                    pose_results = pose_model(frame)
 
                 # Process pose estimation results for fall detection
                 if pose_results and pose_results[0].keypoints is not None:
@@ -223,7 +177,7 @@ while True:
                         if draw_layer:
                             for i, kp in enumerate(keypoints):
                                 if i < len(keypoint_names):
-                                    x, y = int(kp[0].item()) + x1, int(kp[1].item()) + y1
+                                    x, y = int(kp[0].item()), int(kp[1].item())
                                     cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
                                     cv2.putText(frame, keypoint_names[i], (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                                                 (255, 0, 0), 1)
@@ -232,6 +186,42 @@ while True:
                         if detect_fall_with_duration(person_id, keypoints, person_data):
                             alert_position = get_next_alert_position(alerts)
                             add_alert(alerts, f'Fall Detected: Person {person_id}', alert_position, person_id)
+
+    # Process knife detection results on the entire frame
+    for knife_info in knife_results:
+        knife_boxes = knife_info.boxes
+        for box in knife_boxes:
+            x1_k, y1_k, x2_k, y2_k = box.xyxy[0]
+            x1_k, y1_k, x2_k, y2_k = int(x1_k), int(y1_k), int(x2_k), int(y2_k)
+            confidence_k = box.conf[0]
+            class_detect_k = box.cls[0]
+            class_detect_k = int(class_detect_k)
+            conf_k = math.ceil(confidence_k * 100)
+
+            # If a knife is detected and confidence is above the threshold
+            if conf_k > 50 and class_detect_k == 0:  # Assuming class 0 is 'knife'
+                width_k = x2_k - x1_k
+                height_k = y2_k - y1_k
+
+                # Track the knife detection time
+                knife_id = (x1_k, y1_k, x2_k, y2_k)  # Unique knife identifier based on its coordinates
+                if knife_id not in knife_detection_times:
+                    knife_detection_times[knife_id] = {'start_time': time.time(), 'valid': False}
+
+                detection_time = time.time() - knife_detection_times[knife_id]['start_time']
+
+                # Check if the knife has been detected for more than 1 second
+                if detection_time >= 0.5:
+                    knife_detection_times[knife_id]['valid'] = True  # Mark as valid detection
+                    if knife_detection_times[knife_id]['valid']:
+                        # Draw the knife bounding box if drawing layers is enabled
+                        if draw_layer:
+                            cvzone.cornerRect(frame, [x1_k, y1_k, width_k, height_k], l=30, rt=6)
+                            cvzone.putTextRect(frame, "Knife", [x1_k + 8, y1_k - 12], thickness=2, scale=2)
+
+                        # Add knife detection alert (if not already present)
+                        alert_position = get_next_alert_position(alerts)
+                        add_alert(alerts, 'Knife Detected', alert_position)
 
     # Remove expired alerts
     alerts = remove_expired_alerts(alerts)
