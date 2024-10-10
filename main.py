@@ -11,10 +11,7 @@ knife_model = YOLO('best.pt')  # Custom trained object detection model (e.g., fo
 pose_model = YOLO('yolov8n-pose.pt')  # YOLOv8 pose estimation model
 
 # Initialize video capture (webcam or video file)
-# 실제 카메라로 구동
-cap = cv2.VideoCapture(0)
-# 테스트 영상으로 구동
-# cap = cv2.VideoCapture("fall.mp4")
+cap = cv2.VideoCapture("How People Walk.mp4")
 
 # Define keypoints for pose estimation
 keypoint_names = [
@@ -31,6 +28,11 @@ position_reset_threshold = 2.0  # Time threshold to consider a fall if posture d
 # Initialize knife detection time tracking
 knife_detection_times = {}  # Dictionary to track knife detection time for each knife
 
+# List to store active alerts and their positions (now includes a timestamp for managing alert expiry)
+alerts = []
+alert_spacing = 60  # Space between alerts to avoid overlap
+alert_expiry_time = 5  # Time after which an alert expires (optional)
+
 # Function to detect fall based on keypoints
 def detect_fall(initial_positions, current_keypoints):
     try:
@@ -46,6 +48,24 @@ def detect_fall(initial_positions, current_keypoints):
         print(f"Error in fall detection: {e}")
         return False
     return False
+
+# Function to assign a unique position for alerts without overlap
+def get_next_alert_position(alerts):
+    y_base = 50
+    return (50, y_base + len(alerts) * alert_spacing)
+
+# Function to add an alert only if it does not exist already
+def add_alert(alerts, alert_text, position):
+    for alert, _, _ in alerts:
+        if alert == alert_text:  # Check if the alert text already exists
+            return
+    # If alert is not a duplicate, add it with the current time
+    alerts.append((alert_text, position, time.time()))
+
+# Function to remove expired alerts (optional, based on expiry time)
+def remove_expired_alerts(alerts):
+    current_time = time.time()
+    return [(text, pos, t) for text, pos, t in alerts if current_time - t < alert_expiry_time]
 
 while True:
     ret, frame = cap.read()
@@ -97,20 +117,16 @@ while True:
                         # Check if the knife has been detected for more than 1 second
                         if detection_time >= 1.0:
                             knife_detection_times[knife_id]['valid'] = True  # Mark as valid detection
-                            # Draw the knife bounding box if detection is valid
                             if knife_detection_times[knife_id]['valid']:
+                                # Draw the knife bounding box and add alert if detection is valid
                                 cvzone.cornerRect(frame, [x1, y1, width, height], l=30, rt=6)
                                 cvzone.putTextRect(frame, "Knife", [x1 + 8, y1 - 12], thickness=2, scale=2)
-                        else:
-                            # Reset the valid flag if it hasn't been detected for long enough
-                            knife_detection_times[knife_id]['valid'] = False
 
-                # Remove old detections that are no longer present
-                if knife_detection_times[knife_id]['valid'] is False:
-                    del knife_detection_times[knife_id]
+                                # Add knife detection alert (if not already present)
+                                alert_position = get_next_alert_position(alerts)
+                                add_alert(alerts, f'Knife Detected: Person {person_id}', alert_position)
 
     # Process pose estimation results for fall detection
-    fall_detected = False
     if pose_results and pose_results[0].keypoints is not None:
         for person_id, pose_result in enumerate(pose_results):
             keypoints = pose_result.keypoints.xy[0]  # Extract keypoints for each person
@@ -137,9 +153,16 @@ while True:
                 else:
                     fall_duration = time.time() - person_data[person_id]['fall_start_time']
                     if fall_duration >= fall_duration_threshold:
-                        cvzone.putTextRect(frame, f'Fall Detected: Person {person_id}', [50, 50 + person_id * 50], thickness=2, scale=3)
-            else:
-                person_data[person_id]['fall_start_time'] = None
+                        # Add fall detection alert (if not already present)
+                        alert_position = get_next_alert_position(alerts)
+                        add_alert(alerts, f'Fall Detected: Person {person_id}', alert_position)
+
+    # Remove expired alerts if the expiry mechanism is used
+    alerts = remove_expired_alerts(alerts)
+
+    # Display all alerts without overlap
+    for alert_text, position, _ in alerts:
+        cvzone.putTextRect(frame, alert_text, position, thickness=2, scale=2)
 
     # Show the combined results
     cv2.imshow('Detection and Pose Estimation', frame)
