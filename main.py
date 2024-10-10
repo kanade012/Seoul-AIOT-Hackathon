@@ -112,7 +112,8 @@ def remove_expired_alerts(alerts):
 # 알람 상태에 따라 노트북에서 소리 재생
 def play_alert_sound(alerts):
     if len(alerts) > 0:
-        alert_sound.play()  # 알림이 있을 때 소리 재생
+        alert_sound.play(maxtime=1000)  # 1초 동안만 소리 재생
+
 
 # Main loop
 while True:
