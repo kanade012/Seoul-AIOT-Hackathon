@@ -12,9 +12,9 @@ pygame.mixer.init()
 alert_sound = pygame.mixer.Sound('beep.mp3')  # 삐 소리를 담은 파일 경로 설정
 
 # Load YOLOv8 models
-person_model = YOLO('yolov8n.pt')
-knife_model = YOLO('knife_model.pt')  # 칼 탐지 모델
-pose_model = YOLO('yolov8n-pose.pt')
+person_model = YOLO('model/yolov8n.pt')
+knife_model = YOLO('model/knife_model.pt')  # 칼 탐지 모델
+pose_model = YOLO('model/yolov8n-pose.pt')
 
 # Initialize video capture (webcam or video file)
 cap = cv2.VideoCapture(0)
